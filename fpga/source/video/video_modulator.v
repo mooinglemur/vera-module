@@ -6,7 +6,6 @@ module video_modulator(
     input  wire  [3:0] r,
     input  wire  [3:0] g,
     input  wire  [3:0] b,
-
     input  wire        color_burst,
     input  wire        active,
     input  wire        sync_n_in,
@@ -19,11 +18,11 @@ module video_modulator(
     parameter Y_B = 10; // 14; //  0.114
 
     parameter I_R = 76; //  0.5959
-    parameter I_G = 35; // -0.2746 (since this should be -35, *after* multiplication the result is negated)
-    parameter I_B = 41; // -0.3213 (since this should be -41, *after* multiplication the result is negated)
+    parameter I_G = 35; // -0.2746 (this should actually be -35, so *after* multiplication the result is negated)
+    parameter I_B = 41; // -0.3213 (this should actually be -41, so *after* multiplication the result is negated)
 
     parameter Q_R = 27; //  0.2115
-    parameter Q_G = 66; // -0.5227 (since this should be -66, *after* multiplication the result is negated)
+    parameter Q_G = 66; // -0.5227 (this should actually be -66, so *after* multiplication the result is negated)
     parameter Q_B = 40; //  0.3112
 
     // We set up two DSPs for 4 of the 9 multiplications
@@ -87,7 +86,7 @@ module video_modulator(
     reg signed [11:0] y_s;
     reg signed [11:0] i_s;
     reg signed [11:0] q_s;
-    
+
     always @(posedge clk) begin
         
         case ({active, color_burst})
@@ -147,7 +146,7 @@ module video_modulator(
             lum <= 255;
         else
             lum <= y_s[10:3];
-            
+
         chroma_s <= (cosval_s * i8_s) + (sinval_s * q8_s);
     end
 
