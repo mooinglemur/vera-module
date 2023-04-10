@@ -34,12 +34,12 @@ module video_modulator(
     video_modulator_mult_u8xu8_pair video_modulator_mult_ig_yg (
         .clk(clk),
         
-        // i_g = I_G * g
+        // I_G_times_g = I_G * g
         .input_1a_8(I_G[7:0]),
         .input_1b_8({4'b0000, g}),
         .output_1_16(I_G_times_g_16),
         
-        // y_g = Y_G * g
+        // Y_G_times_g = Y_G * g
         .input_2a_8(Y_G[7:0]),
         .input_2b_8({4'b0000, g}),
         .output_2_16(Y_G_times_g_16)
@@ -49,12 +49,12 @@ module video_modulator(
     video_modulator_mult_u8xu8_pair video_modulator_mult_yr_ir (
         .clk(clk),
         
-        // y_r = Y_R * r
+        // Y_R_times_r = Y_R * r
         .input_1a_8(Y_R[7:0]),
         .input_1b_8({4'b0000, r}),
         .output_1_16(Y_R_times_r_16),
         
-        // i_r = I_R * r
+        // I_R_times_r = I_R * r
         .input_2a_8(I_R[7:0]),
         .input_2b_8({4'b0000, r}),
         .output_2_16(I_R_times_r_16)
