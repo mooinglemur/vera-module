@@ -179,7 +179,7 @@ module top(
             end else if (dc_select_r == 6'h1) begin
                 rddata = dc_active_vstop_r[8:1];
             end else begin
-                rddata = 8'h01;
+                rddata = 8'h02;
             end
         end
 
