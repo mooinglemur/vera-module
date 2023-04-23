@@ -45,6 +45,9 @@
         <Source name="source/video/video_modulator_coslut.v" type="Verilog" type_short="Verilog">
             <Options/>
         </Source>
+        <Source name="source/video/video_modulator_mult_u8xu8_pair.v" type="Verilog" type_short="Verilog">
+            <Options/>
+        </Source>
         <Source name="source/video/video_modulator_sinlut.v" type="Verilog" type_short="Verilog">
             <Options/>
         </Source>
