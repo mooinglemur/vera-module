@@ -147,42 +147,34 @@ module top(
         5'h08: rddata = scanline[7:0];
 
         5'h09: begin
-            if (dc_select_r == 6'h0) begin
-                rddata = {current_field, sprites_enabled_r, l1_enabled_r, l0_enabled_r, line_interlace_mode_r, chroma_disable_r, video_output_mode_r};
-            end else if (dc_select_r == 6'h1) begin
-                rddata = dc_active_hstart_r[9:2];
-            end else begin
-                rddata = "V";
-            end
+            case(dc_select_r)
+                6'h0: rddata = {current_field, sprites_enabled_r, l1_enabled_r, l0_enabled_r, line_interlace_mode_r, chroma_disable_r, video_output_mode_r};
+                6'h1: rddata = dc_active_hstart_r[9:2];
+                default: rddata = "V";
+            endcase
         end
         5'h0A: begin
-            if (dc_select_r == 6'h0) begin
-                rddata = dc_hscale_r;
-            end else if (dc_select_r == 6'h1) begin
-                rddata = dc_active_hstop_r[9:2];
-            end else begin
-                rddata = 8'h00;
-            end
+            case(dc_select_r)
+                6'h0: rddata = dc_hscale_r;
+                6'h1: rddata = dc_active_hstop_r[9:2];
+                default: rddata = 8'h00;
+            endcase
         end
         5'h0B: begin
-            if (dc_select_r == 6'h0) begin
-                rddata = dc_vscale_r;
-            end else if (dc_select_r == 6'h1) begin
-                rddata = dc_active_vstart_r[8:1];
-            end else begin
-                rddata = 8'h01;
-            end
+            case(dc_select_r)
+                6'h0: rddata = dc_vscale_r;
+                6'h1: rddata = dc_active_vstart_r[8:1];
+                default: rddata = 8'h01;
+            endcase
         end
         5'h0C: begin
-            if (dc_select_r == 6'h0) begin
-                rddata = dc_border_color_r;
-            end else if (dc_select_r == 6'h1) begin
-                rddata = dc_active_vstop_r[8:1];
-            end else begin
-                rddata = 8'h02;
-            end
+            case(dc_select_r)
+                6'h0: rddata = dc_border_color_r;
+                6'h1: rddata = dc_active_vstop_r[8:1];
+                default: rddata = 8'h01;
+            endcase
         end
-
+        
         5'h0D: rddata = {l0_map_height_r, l0_map_width_r, l0_attr_mode_r, l0_bitmap_mode_r, l0_color_depth_r};
         5'h0E: rddata = l0_map_baseaddr_r;
         5'h0F: rddata = {l0_tile_baseaddr_r[7:2], l0_tile_height_r, l0_tile_width_r};
@@ -210,11 +202,6 @@ module top(
     wire bus_read  = !extbus_cs_n &&  extbus_wr_n && !extbus_rd_n;
     wire bus_write = !extbus_cs_n && !extbus_wr_n;
     assign extbus_d = bus_read ? rddata : 8'bZ;
-
-    wire [3:0] irq_enable = {irq_enable_audio_fifo_low_r, irq_enable_sprite_collision_r, irq_enable_line_r, irq_enable_vsync_r};
-    wire [3:0] irq_status = {audio_fifo_low,              irq_status_sprite_collision_r, irq_status_line_r, irq_status_vsync_r};
-
-    assign extbus_irq_n = (irq_status & irq_enable) == 0;
 
     // Capture address / write-data at end of write cycle
     reg [4:0] rdaddr_r;
@@ -308,6 +295,7 @@ module top(
         l1_enabled_next                  = l1_enabled_r;
         chroma_disable_next              = chroma_disable_r;
         line_interlace_mode_next         = line_interlace_mode_r;
+        video_output_mode_next           = video_output_mode_r;
         dc_hscale_next                   = dc_hscale_r;
         dc_vscale_next                   = dc_vscale_r;
         dc_border_color_next             = dc_border_color_r;
@@ -337,7 +325,6 @@ module top(
         l1_tile_baseaddr_next            = l1_tile_baseaddr_r;
         l1_hscroll_next                  = l1_hscroll_r;
         l1_vscroll_next                  = l1_vscroll_r;
-        video_output_mode_next           = video_output_mode_r;
 
         audio_pcm_sample_rate_next       = audio_pcm_sample_rate_r;
         audio_mode_stereo_next           = audio_mode_stereo_r;
@@ -362,6 +349,7 @@ module top(
         spi_txdata                       = write_data;
         spi_txstart                      = 0;
 
+
         if (save_result_r) begin
             if (!save_result_port_r) begin
                 vram_data0_next = vram_rddata;
@@ -370,188 +358,40 @@ module top(
             end
         end
 
-        if (do_write) begin
-            case (access_addr)
-                5'h00: begin
-                    if (vram_addr_select_r) begin
-                        vram_addr_1_next[7:0] = write_data;
-                    end else begin
-                        vram_addr_0_next[7:0] = write_data;
-                    end
+        if (do_write && access_addr == 5'h00) begin
+            if (vram_addr_select_r) begin
+                vram_addr_1_next[7:0] = write_data;
+            end else begin
+                vram_addr_0_next[7:0] = write_data;
+            end
 
-                    fetch_ahead_port_next = vram_addr_select_r;
-                    fetch_ahead_next = 1;
-                end
-                5'h01: begin
-                    if (vram_addr_select_r) begin
-                        vram_addr_1_next[15:8] = write_data;
-                    end else begin
-                        vram_addr_0_next[15:8] = write_data;
-                    end
-
-                    fetch_ahead_port_next = vram_addr_select_r;
-                    fetch_ahead_next = 1;
-                end
-                5'h02: begin
-                    if (vram_addr_select_r) begin
-                        vram_addr_incr_1_next = write_data[7:4];
-                        vram_addr_decr_1_next = write_data[3];
-                        vram_addr_1_next[16]  = write_data[0];
-                    end else begin
-                        vram_addr_incr_0_next = write_data[7:4];
-                        vram_addr_decr_0_next = write_data[3];
-                        vram_addr_0_next[16]  = write_data[0];
-                    end
-
-                    fetch_ahead_port_next = vram_addr_select_r;
-                    fetch_ahead_next = 1;
-                end
-                5'h03: begin
-                end
-                5'h04: begin
-                end
-                5'h05: begin
-                    fpga_reconfigure_next = write_data[7];
-                    dc_select_next        = write_data[6:1];
-                    vram_addr_select_next = write_data[0];
-                end
-
-                5'h06: begin
-                    irq_line_next[8]                 = write_data[7];
-                    irq_enable_audio_fifo_low_next   = write_data[3];
-                    irq_enable_sprite_collision_next = write_data[2];
-                    irq_enable_line_next             = write_data[1];
-                    irq_enable_vsync_next            = write_data[0];
-                end
-                5'h07: begin
-                    // Clear status bits
-                    irq_status_sprite_collision_next = irq_status_sprite_collision_r & !write_data[2];
-                    irq_status_line_next             = irq_status_line_r             & !write_data[1];
-                    irq_status_vsync_next            = irq_status_vsync_r            & !write_data[0];
-                end
-                5'h08: irq_line_next[7:0] = write_data;
-
-                5'h09: begin
-                    if (dc_select_r == 0) begin
-                        sprites_enabled_next     = write_data[6];
-                        l1_enabled_next          = write_data[5];
-                        l0_enabled_next          = write_data[4];
-                        line_interlace_mode_next = write_data[3];
-                        chroma_disable_next      = write_data[2];
-                        video_output_mode_next   = write_data[1:0];
-                    end else begin
-                        dc_active_hstart_next[9:2] = write_data;
-                        dc_active_hstart_next[1:0] = 0;
-                    end
-                end
-                5'h0A: begin
-                    if (dc_select_r == 0) begin
-                        dc_hscale_next            = write_data;
-                    end else if (dc_select_r == 1) begin
-                        dc_active_hstop_next[9:2] = write_data;
-                        dc_active_hstop_next[1:0] = 0;
-                    end
-                end
-                5'h0B: begin
-                    if (dc_select_r == 0) begin
-                        dc_vscale_next             = write_data;
-                    end else if (dc_select_r == 1) begin
-                        dc_active_vstart_next[8:1] = write_data;
-                        dc_active_vstart_next[0]   = 0;
-                    end
-                end
-                5'h0C: begin
-                    if (dc_select_r == 0) begin
-                        dc_border_color_next      = write_data;
-                    end else if (dc_select_r == 1) begin
-                        dc_active_vstop_next[8:1] = write_data;
-                        dc_active_vstop_next[0]   = 0;
-                    end
-                end
-
-                5'h0D: begin
-                    l0_map_height_next  = write_data[7:6];
-                    l0_map_width_next   = write_data[5:4];
-                    l0_attr_mode_next   = write_data[3];
-                    l0_bitmap_mode_next = write_data[2];
-                    l0_color_depth_next = write_data[1:0];
-                end
-                5'h0E: l0_map_baseaddr_next = write_data;
-                5'h0F: begin
-                    l0_tile_baseaddr_next[7:2] = write_data[7:2];
-                    l0_tile_baseaddr_next[1:0] = 0;
-
-                    l0_tile_height_next = write_data[1];
-                    l0_tile_width_next  = write_data[0];
-                end
-                5'h10: l0_hscroll_next[7:0]  = write_data;
-                5'h11: l0_hscroll_next[11:8] = write_data[3:0];
-                5'h12: l0_vscroll_next[7:0]  = write_data;
-                5'h13: l0_vscroll_next[11:8] = write_data[3:0];
-
-                5'h14: begin
-                    l1_map_height_next  = write_data[7:6];
-                    l1_map_width_next   = write_data[5:4];
-                    l1_attr_mode_next   = write_data[3];
-                    l1_bitmap_mode_next = write_data[2];
-                    l1_color_depth_next = write_data[1:0];
-                end
-                5'h15: l1_map_baseaddr_next = write_data;
-                5'h16: begin
-                    l1_tile_baseaddr_next[7:2] = write_data[7:2];
-                    l1_tile_baseaddr_next[1:0] = 0;
-
-                    l1_tile_height_next = write_data[1];
-                    l1_tile_width_next  = write_data[0];
-                end
-                5'h17: l1_hscroll_next[7:0]  = write_data;
-                5'h18: l1_hscroll_next[11:8] = write_data[3:0];
-                5'h19: l1_vscroll_next[7:0]  = write_data;
-                5'h1A: l1_vscroll_next[11:8] = write_data[3:0];
-
-                5'h1B: begin
-                    audio_fifo_reset_next       = write_data[7];
-                    audio_mode_16bit_next       = write_data[5];
-                    audio_mode_stereo_next      = write_data[4];
-                    audio_pcm_volume_next       = write_data[3:0];
-                end
-                5'h1C: audio_pcm_sample_rate_next = write_data;
-                5'h1D: begin
-                    audio_fifo_wrdata_next = write_data;
-                    audio_fifo_write_next  = 1;
-                end
-
-                5'h1E: spi_txstart = 1;
-                5'h1F: begin
-                    spi_autotx_next = write_data[2];
-                    spi_slow_next   = write_data[1];
-                    spi_select_next = write_data[0];
-                end
-            endcase
+            fetch_ahead_port_next = vram_addr_select_r;
+            fetch_ahead_next = 1;
         end
+        if (do_write && access_addr == 5'h01) begin
+            if (vram_addr_select_r) begin
+                vram_addr_1_next[15:8] = write_data;
+            end else begin
+                vram_addr_0_next[15:8] = write_data;
+            end
 
-        // SPI auto-tx function
-        if (spi_autotx_r && access_addr == 5'h1E && do_read) begin
-            spi_txdata = 8'hFF;
-            spi_txstart = 1;
+            fetch_ahead_port_next = vram_addr_select_r;
+            fetch_ahead_next = 1;
         end
+        if (do_write && access_addr == 5'h02) begin
+            if (vram_addr_select_r) begin
+                vram_addr_incr_1_next = write_data[7:4];
+                vram_addr_decr_1_next = write_data[3];
+                vram_addr_1_next[16]  = write_data[0];
+            end else begin
+                vram_addr_incr_0_next = write_data[7:4];
+                vram_addr_decr_0_next = write_data[3];
+                vram_addr_0_next[16]  = write_data[0];
+            end
 
-        if (sprcol_irq) begin
-            irq_status_sprite_collision_next = 1;
+            fetch_ahead_port_next = vram_addr_select_r;
+            fetch_ahead_next = 1;
         end
-        if (line_irq) begin
-            irq_status_line_next = 1;
-        end
-        if (vblank_pulse) begin
-            irq_status_vsync_next = 1;
-        end
-
-        if (fetch_ahead_r) begin
-            ib_addr_next      = fetch_ahead_port_r ? vram_addr_1_r : vram_addr_0_r;
-            ib_write_next     = 0;
-            ib_do_access_next = 1;
-        end
-
         if ((do_write || do_read) && (access_addr == 5'h03 || access_addr == 5'h04)) begin
             ib_wrdata_next = write_data;
             ib_write_next  = do_write;
@@ -570,6 +410,166 @@ module top(
             end
             fetch_ahead_next = 1;
         end
+        if (fetch_ahead_r) begin
+            ib_addr_next      = fetch_ahead_port_r ? vram_addr_1_r : vram_addr_0_r;
+            ib_write_next     = 0;
+            ib_do_access_next = 1;
+        end
+        
+        
+        if (do_write && access_addr == 5'h05) begin
+            fpga_reconfigure_next = write_data[7];
+            dc_select_next        = write_data[6:1];
+            vram_addr_select_next = write_data[0];
+        end
+        if (do_write && access_addr == 5'h09 && dc_select_r == 0) begin
+            sprites_enabled_next     = write_data[6];
+            l1_enabled_next          = write_data[5];
+            l0_enabled_next          = write_data[4];
+            line_interlace_mode_next = write_data[3];
+            chroma_disable_next      = write_data[2];
+            video_output_mode_next   = write_data[1:0];
+        end
+        if (do_write && access_addr == 5'h09 && dc_select_r == 1) begin
+            dc_active_hstart_next[9:2] = write_data;
+            dc_active_hstart_next[1:0] = 0;
+        end
+        if (do_write && access_addr == 5'h0A && dc_select_r == 0) begin
+            dc_hscale_next            = write_data;
+        end
+        if (do_write && access_addr == 5'h0A && dc_select_r == 1) begin
+            dc_active_hstop_next[9:2] = write_data;
+            dc_active_hstop_next[1:0] = 0;
+        end
+        if (do_write && access_addr == 5'h0B && dc_select_r == 0) begin
+            dc_vscale_next             = write_data;
+        end
+        if (do_write && access_addr == 5'h0B && dc_select_r == 1) begin
+            dc_active_vstart_next[8:1] = write_data;
+            dc_active_vstart_next[0]   = 0;
+        end
+        if (do_write && access_addr == 5'h0C && dc_select_r == 0) begin
+            dc_border_color_next      = write_data;
+        end
+        if (do_write && access_addr == 5'h0C && dc_select_r == 1) begin
+            dc_active_vstop_next[8:1] = write_data;
+            dc_active_vstop_next[0]   = 0;
+        end
+        if (do_write && access_addr == 5'h0D) begin
+            l0_map_height_next  = write_data[7:6];
+            l0_map_width_next   = write_data[5:4];
+            l0_attr_mode_next   = write_data[3];
+            l0_bitmap_mode_next = write_data[2];
+            l0_color_depth_next = write_data[1:0];
+        end
+        if (do_write && access_addr == 5'h0E) begin
+            l0_map_baseaddr_next = write_data;
+        end
+        if (do_write && access_addr == 5'h0F) begin
+            l0_tile_baseaddr_next[7:2] = write_data[7:2];
+            l0_tile_baseaddr_next[1:0] = 0;
+
+            l0_tile_height_next = write_data[1];
+            l0_tile_width_next  = write_data[0];
+        end
+        if (do_write && access_addr == 5'h10) begin
+            l0_hscroll_next[7:0]  = write_data;
+        end
+        if (do_write && access_addr == 5'h11) begin
+            l0_hscroll_next[11:8] = write_data[3:0];
+        end
+        if (do_write && access_addr == 5'h12) begin
+            l0_vscroll_next[7:0]  = write_data;
+        end
+        if (do_write && access_addr == 5'h13) begin
+            l0_vscroll_next[11:8] = write_data[3:0];
+        end
+        if (do_write && access_addr == 5'h14) begin
+            l1_map_height_next  = write_data[7:6];
+            l1_map_width_next   = write_data[5:4];
+            l1_attr_mode_next   = write_data[3];
+            l1_bitmap_mode_next = write_data[2];
+            l1_color_depth_next = write_data[1:0];
+        end
+        if (do_write && access_addr == 5'h15) begin
+            l1_map_baseaddr_next = write_data;
+        end
+        if (do_write && access_addr == 5'h16) begin
+            l1_tile_baseaddr_next[7:2] = write_data[7:2];
+            l1_tile_baseaddr_next[1:0] = 0;
+
+            l1_tile_height_next = write_data[1];
+            l1_tile_width_next  = write_data[0];
+        end
+        if (do_write && access_addr == 5'h17) begin
+            l1_hscroll_next[7:0]  = write_data;
+        end
+        if (do_write && access_addr == 5'h18) begin
+            l1_hscroll_next[11:8] = write_data[3:0];
+        end
+        if (do_write && access_addr == 5'h19) begin
+            l1_vscroll_next[7:0]  = write_data;
+        end
+        if (do_write && access_addr == 5'h1A) begin
+            l1_vscroll_next[11:8] = write_data[3:0];
+        end
+        
+        if (do_write && access_addr == 5'h06) begin
+            irq_line_next[8]                 = write_data[7];
+            irq_enable_audio_fifo_low_next   = write_data[3];
+            irq_enable_sprite_collision_next = write_data[2];
+            irq_enable_line_next             = write_data[1];
+            irq_enable_vsync_next            = write_data[0];
+        end
+        if (do_write && access_addr == 5'h07) begin
+            // Clear status bits
+            irq_status_sprite_collision_next = irq_status_sprite_collision_r & !write_data[2];
+            irq_status_line_next             = irq_status_line_r             & !write_data[1];
+            irq_status_vsync_next            = irq_status_vsync_r            & !write_data[0];
+        end
+        if (do_write && access_addr == 5'h08) begin
+            irq_line_next[7:0] = write_data;
+        end
+        
+        if (sprcol_irq) begin
+            irq_status_sprite_collision_next = 1;
+        end
+        if (line_irq) begin
+            irq_status_line_next = 1;
+        end
+        if (vblank_pulse) begin
+            irq_status_vsync_next = 1;
+        end
+        
+        if (do_write && access_addr == 5'h1E) begin
+            spi_txstart = 1;
+        end
+        if (do_write && access_addr == 5'h1F) begin
+            spi_autotx_next = write_data[2];
+            spi_slow_next   = write_data[1];
+            spi_select_next = write_data[0];
+        end
+        
+        // SPI auto-tx function
+        if (spi_autotx_r && access_addr == 5'h1E && do_read) begin
+            spi_txdata = 8'hFF;
+            spi_txstart = 1;
+        end
+
+        if (do_write && access_addr == 5'h1B) begin
+            audio_fifo_reset_next       = write_data[7];
+            audio_mode_16bit_next       = write_data[5];
+            audio_mode_stereo_next      = write_data[4];
+            audio_pcm_volume_next       = write_data[3:0];
+        end
+        if (do_write && access_addr == 5'h1C) begin
+            audio_pcm_sample_rate_next = write_data;
+        end
+        if (do_write && access_addr == 5'h1D) begin
+            audio_fifo_wrdata_next = write_data;
+            audio_fifo_write_next  = 1;
+        end
+
     end
 
     always @(posedge clk or posedge reset) begin
@@ -585,19 +585,12 @@ module top(
             vram_data1_r                  <= 0;
             dc_select_r                   <= 0;
             fpga_reconfigure_r            <= 0;
-            irq_enable_audio_fifo_low_r   <= 0;
-            irq_enable_vsync_r            <= 0;
-            irq_enable_line_r             <= 0;
-            irq_enable_sprite_collision_r <= 0;
-            irq_status_vsync_r            <= 0;
-            irq_status_line_r             <= 0;
-            irq_status_sprite_collision_r <= 0;
-            irq_line_r                    <= 0;
             sprites_enabled_r             <= 0;
             l0_enabled_r                  <= 0;
             l1_enabled_r                  <= 0;
             chroma_disable_r              <= 0;
             line_interlace_mode_r         <= 1;
+            video_output_mode_r           <= 0;
             dc_hscale_r                   <= 8'd128;
             dc_vscale_r                   <= 8'd128;
             dc_border_color_r             <= 0;
@@ -627,7 +620,17 @@ module top(
             l1_tile_baseaddr_r            <= 0;
             l1_hscroll_r                  <= 0;
             l1_vscroll_r                  <= 0;
-            video_output_mode_r           <= 0;
+            irq_enable_audio_fifo_low_r   <= 0;
+            irq_enable_vsync_r            <= 0;
+            irq_enable_line_r             <= 0;
+            irq_enable_sprite_collision_r <= 0;
+            irq_status_vsync_r            <= 0;
+            irq_status_line_r             <= 0;
+            irq_status_sprite_collision_r <= 0;
+            irq_line_r                    <= 0;
+            spi_select_r                  <= 0;
+            spi_slow_r                    <= 0;
+            spi_autotx_r                  <= 0;
             audio_pcm_sample_rate_r       <= 0;
             audio_mode_stereo_r           <= 0;
             audio_mode_16bit_r            <= 0;
@@ -635,9 +638,6 @@ module top(
             audio_pcm_volume_r            <= 0;
             audio_fifo_wrdata_r           <= 0;
             audio_fifo_write_r            <= 0;
-            spi_select_r                  <= 0;
-            spi_slow_r                    <= 0;
-            spi_autotx_r                  <= 0;
 
             ib_addr_r                     <= 0;
             ib_wrdata_r                   <= 0;
@@ -662,19 +662,12 @@ module top(
             vram_data1_r                  <= vram_data1_next;
             dc_select_r                   <= dc_select_next;
             fpga_reconfigure_r            <= fpga_reconfigure_next;
-            irq_enable_audio_fifo_low_r   <= irq_enable_audio_fifo_low_next;
-            irq_enable_vsync_r            <= irq_enable_vsync_next;
-            irq_enable_line_r             <= irq_enable_line_next;
-            irq_enable_sprite_collision_r <= irq_enable_sprite_collision_next;
-            irq_status_vsync_r            <= irq_status_vsync_next;
-            irq_status_line_r             <= irq_status_line_next;
-            irq_status_sprite_collision_r <= irq_status_sprite_collision_next;
-            irq_line_r                    <= irq_line_next;
             sprites_enabled_r             <= sprites_enabled_next;
             l0_enabled_r                  <= l0_enabled_next;
             l1_enabled_r                  <= l1_enabled_next;
             chroma_disable_r              <= chroma_disable_next;
             line_interlace_mode_r         <= line_interlace_mode_next;
+            video_output_mode_r           <= video_output_mode_next;
             dc_hscale_r                   <= dc_hscale_next;
             dc_vscale_r                   <= dc_vscale_next;
             dc_border_color_r             <= dc_border_color_next;
@@ -704,7 +697,17 @@ module top(
             l1_tile_baseaddr_r            <= l1_tile_baseaddr_next;
             l1_hscroll_r                  <= l1_hscroll_next;
             l1_vscroll_r                  <= l1_vscroll_next;
-            video_output_mode_r           <= video_output_mode_next;
+            irq_enable_audio_fifo_low_r   <= irq_enable_audio_fifo_low_next;
+            irq_enable_vsync_r            <= irq_enable_vsync_next;
+            irq_enable_line_r             <= irq_enable_line_next;
+            irq_enable_sprite_collision_r <= irq_enable_sprite_collision_next;
+            irq_status_vsync_r            <= irq_status_vsync_next;
+            irq_status_line_r             <= irq_status_line_next;
+            irq_status_sprite_collision_r <= irq_status_sprite_collision_next;
+            irq_line_r                    <= irq_line_next;
+            spi_select_r                  <= spi_select_next;
+            spi_slow_r                    <= spi_slow_next;
+            spi_autotx_r                  <= spi_autotx_next;
             audio_pcm_sample_rate_r       <= audio_pcm_sample_rate_next;
             audio_mode_stereo_r           <= audio_mode_stereo_next;
             audio_mode_16bit_r            <= audio_mode_16bit_next;
@@ -712,9 +715,6 @@ module top(
             audio_pcm_volume_r            <= audio_pcm_volume_next;
             audio_fifo_wrdata_r           <= audio_fifo_wrdata_next;
             audio_fifo_write_r            <= audio_fifo_write_next;
-            spi_select_r                  <= spi_select_next;
-            spi_slow_r                    <= spi_slow_next;
-            spi_autotx_r                  <= spi_autotx_next;
 
             ib_addr_r                     <= ib_addr_next;
             ib_wrdata_r                   <= ib_wrdata_next;
@@ -1252,5 +1252,14 @@ module top(
         .i2s_lrck(audio_lrck),
         .i2s_bck(audio_bck),
         .i2s_data(audio_data));
+
+    
+    //////////////////////////////////////////////////////////////////////////
+    // IRQ
+    //////////////////////////////////////////////////////////////////////////
+    wire [3:0] irq_enable = {irq_enable_audio_fifo_low_r, irq_enable_sprite_collision_r, irq_enable_line_r, irq_enable_vsync_r};
+    wire [3:0] irq_status = {audio_fifo_low,              irq_status_sprite_collision_r, irq_status_line_r, irq_status_vsync_r};
+
+    assign extbus_irq_n = (irq_status & irq_enable) == 0;
 
 endmodule
