@@ -9,6 +9,9 @@
         <Source name="source/reset_sync.v" type="Verilog" type_short="Verilog">
             <Options/>
         </Source>
+        <Source name="source/addr_data.v" type="Verilog" type_short="Verilog">
+            <Options/>
+        </Source>
         <Source name="source/main_ram.v" type="Verilog" type_short="Verilog">
             <Options/>
         </Source>
