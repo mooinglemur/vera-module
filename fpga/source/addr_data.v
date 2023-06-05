@@ -194,7 +194,7 @@ module addr_data(
     reg  [2:0]  fx_vram_addr_1_needs_to_be_changed;
 
     reg         fx_subpixel_position_should_be_updated;
-	
+
     //////////////////////////////////////////////////////////////////////////
     // Calculation for X and Y accumulation
     //////////////////////////////////////////////////////////////////////////
@@ -314,12 +314,12 @@ module addr_data(
         // Reads from and writes to addresses 03 and 04 (DATA0 and DATA1)
         //////////////////////////////////////////////////////////////////////////
 
-		// In line draw mode we increment the subpixel positions when reading from or writing to DATA1
-		// We also increment (depending on overflow) ADDR1 after updating the subpixel positions
+        // In line draw mode we increment the subpixel positions when reading from or writing to DATA1
+        // We also increment (depending on overflow) ADDR1 after updating the subpixel positions
         if ((do_write || do_read) && access_addr == 5'h04 && fx_addr1_mode_r == MODE_LINE_DRAW) begin
-			fx_subpixel_position_should_be_updated = 1;
-			fx_increment_addr1_depending_on_overflow_next = 1;
-		end
+            fx_subpixel_position_should_be_updated = 1;
+            fx_increment_addr1_depending_on_overflow_next = 1;
+        end
 
         if(fx_subpixel_position_should_be_updated) begin
             // We are sign-extending the increments, since they could be negative numbers
@@ -407,8 +407,8 @@ module addr_data(
         end else if (fx_increment_addr1_depending_on_overflow_r && fx_addr1_mode_r == MODE_LINE_DRAW && fx_subpixel_pos_in_map_x_r[9]) begin
             fx_vram_addr_1_needs_to_be_changed = ADDR1_INCR_10; // addr_1 needs to be set with vram_addr_1_incr_decr_10
             fx_increment_addr1_depending_on_overflow_next = 0;
-			// We reset the overflow bit to 0 again, since it shouldnt trigger the overflow again
-			fx_subpixel_pos_in_map_x_next[9] = 0;
+            // We reset the overflow bit to 0 again, since it shouldnt trigger the overflow again
+            fx_subpixel_pos_in_map_x_next[9] = 0;
         end else if (fx_increment_addr1_depending_on_overflow_r && fx_addr1_mode_r == MODE_LINE_DRAW && !fx_subpixel_pos_in_map_x_r[9]) begin
             fx_vram_addr_1_needs_to_be_changed = ADDR1_INCR_1; // addr_1 needs to be set with vram_addr_1_incr_decr_1
             fx_increment_addr1_depending_on_overflow_next = 0;
