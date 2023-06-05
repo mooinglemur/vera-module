@@ -55,6 +55,13 @@ module top(
     wire  [7:0] vram_data0_r;
     wire  [7:0] vram_data1_r;
     
+    wire [16:0] ib_addr_r;
+    wire  [7:0] ib_wrdata_r;
+    wire        ib_write_r;
+    wire        ib_do_access_r;
+    
+    wire  [1:0] fx_addr1_mode;
+
     reg        vram_addr_select_r,            vram_addr_select_next;
     reg  [5:0] dc_select_r,                   dc_select_next;
     reg        fpga_reconfigure_r,            fpga_reconfigure_next;
@@ -151,6 +158,7 @@ module top(
             case(dc_select_r)
                 6'h0: rddata = {current_field, sprites_enabled_r, l1_enabled_r, l0_enabled_r, line_interlace_mode_r, chroma_disable_r, video_output_mode_r};
                 6'h1: rddata = dc_active_hstart_r[9:2];
+                6'h2: rddata = {6'b0, fx_addr1_mode};
                 default: rddata = "V";
             endcase
         end
@@ -232,11 +240,6 @@ module top(
     wire [4:0] access_addr = do_write ? wraddr_r : rdaddr_r;
     wire [7:0] write_data  = wrdata_r;
 
-    wire [16:0] ib_addr_r;
-    wire  [7:0] ib_wrdata_r;
-    wire        ib_write_r;
-    wire        ib_do_access_r;
-    
     always @* begin
         vram_addr_select_next            = vram_addr_select_r;
         dc_select_next                   = dc_select_r;
@@ -605,7 +608,9 @@ module top(
         .ib_addr(ib_addr_r),
         .ib_wrdata(ib_wrdata_r),
         .ib_do_access(ib_do_access_r),
-        .ib_write(ib_write_r)
+        .ib_write(ib_write_r),
+
+        .fx_addr1_mode(fx_addr1_mode)
     );
 
     //////////////////////////////////////////////////////////////////////////
