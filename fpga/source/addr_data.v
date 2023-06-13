@@ -27,7 +27,10 @@ module addr_data(
     output wire        ib_write,
     output wire        ib_do_access,
 
-    output wire  [1:0] fx_addr1_mode
+    output wire  [1:0] fx_addr1_mode,
+    
+    output reg   [7:0] fx_fill_length_low,
+    output reg   [7:0] fx_fill_length_high
     );
 
     //////////////////////////////////////////////////////////////////////////
@@ -65,6 +68,7 @@ module addr_data(
     parameter
         MODE_NORMAL        = 2'b00,
         MODE_LINE_DRAW     = 2'b01,
+        MODE_POLY_FILL     = 2'b10,
         
         ADDR0_UNTOUCHED    = 2'b00,   // ADDR0 is untouched and should stay the same
         ADDR0_SET          = 2'b01,   // ADDR0 is (partially) set by the CPU
@@ -73,6 +77,7 @@ module addr_data(
         ADDR1_UNTOUCHED    = 3'b000,  // ADDR1 is untouched and should stay the same
         ADDR1_INCR_1       = 3'b001,  // ADDR1 should be increment with the increment of ADDR1
         ADDR1_INCR_1_AND_0 = 3'b010,  // ADDR1 should be increment with both the increment of ADDR1 and the increment of ADDR0
+        ADDR1_ADDR0_X1     = 3'b110,  // ADDR1 should be set to ADDR0 + X1
         ADDR1_SET          = 3'b111;  // ADDR1 is (partially) set by the CPU
 
 
@@ -184,6 +189,7 @@ module addr_data(
     reg         fetch_ahead_r,  fetch_ahead_next;
     reg         fetch_ahead_port_r,  fetch_ahead_port_next;
     
+    reg         fx_calculate_addr1_based_on_position_r, fx_calculate_addr1_based_on_position_next;
     reg         fx_increment_on_overflow_r, fx_increment_on_overflow_next;
 
     reg  [16:0] vram_addr_0_untouched_or_set;
@@ -194,6 +200,8 @@ module addr_data(
     reg         vram_addr_1_untouched_or_set_bit16;
     reg   [7:0] vram_addr_1_untouched_or_set_high, vram_addr_1_untouched_or_set_low;
     
+    reg  [16:0] vram_addr_1_start_of_horizontal_fill_line;
+
     reg  [1:0]  fx_vram_addr_0_needs_to_be_changed;
     reg  [2:0]  fx_vram_addr_1_needs_to_be_changed;
     reg         fx_pixel_position_needs_to_be_updated;
@@ -206,6 +214,32 @@ module addr_data(
     wire [19:0] fx_pixel_pos_x_new = fx_pixel_pos_x_r + (fx_pixel_incr_x_times_32_r ? { fx_pixel_incr_x_r, 5'b00000 } : { {5{fx_pixel_incr_x_r[14]}}, fx_pixel_incr_x_r });
     wire [19:0] fx_pixel_pos_y_new = fx_pixel_pos_y_r + (fx_pixel_incr_y_times_32_r ? { fx_pixel_incr_y_r, 5'b00000 } : { {5{fx_pixel_incr_y_r[14]}}, fx_pixel_incr_y_r });
     
+    //////////////////////////////////////////////////////////////////////////
+    // Fill length calculations
+    //////////////////////////////////////////////////////////////////////////
+
+    wire [9:0] fx_fill_length = fx_pixel_pos_y_r[18:9] - fx_pixel_pos_x_r[18:9];
+    
+    wire       fx_fill_length_more_than_15 = fx_fill_length[9:4] != 0;
+    
+    // Note: If we have a negative number (or too high: upper 2 bits should neven be 11b) we return 'zero' value and fill_length_more_than_15 = 1, to indicate we have an invalid value.
+    wire      fx_fill_length_overflow = fx_fill_length[9:8] == 2'b11;
+    
+    always @* begin
+        
+        fx_fill_length_high = { fx_fill_length[9:3], 1'b0 };
+
+        fx_fill_length_low[0] = 1'b0;
+        fx_fill_length_low[1] = !fx_fill_length_overflow && fx_fill_length[0];
+        fx_fill_length_low[2] = !fx_fill_length_overflow && fx_fill_length[1];
+        fx_fill_length_low[3] = !fx_fill_length_overflow && fx_fill_length[2];
+        fx_fill_length_low[4] = !fx_fill_length_overflow && fx_fill_length[3];
+        fx_fill_length_low[5] = !fx_fill_length_overflow && fx_pixel_pos_x_r[9];
+        fx_fill_length_low[6] = !fx_fill_length_overflow && fx_pixel_pos_x_r[10];
+        fx_fill_length_low[7] = fx_fill_length_more_than_15;
+
+    end
+
     always @* begin
         // vram_addr_0_next                 = vram_addr_0_r;
         // vram_addr_1_next                 = vram_addr_1_r;
@@ -227,6 +261,7 @@ module addr_data(
         fx_pixel_incr_x_next             = fx_pixel_incr_x_r;
         fx_pixel_incr_y_next             = fx_pixel_incr_y_r;
 
+        fx_calculate_addr1_based_on_position_next = fx_calculate_addr1_based_on_position_r;
         fx_increment_on_overflow_next    = fx_increment_on_overflow_r;
 
         fx_vram_addr_0_needs_to_be_changed = 0;
@@ -317,11 +352,22 @@ module addr_data(
         // Reads from and writes to addresses 03 and 04 (DATA0 and DATA1)
         //////////////////////////////////////////////////////////////////////////
 
+        // In polygon mode we increment the subpixel positions when reading from DATA0
+        if (do_read && access_addr == 5'h03 && fx_addr1_mode_r == MODE_POLY_FILL) begin
+            fx_pixel_position_needs_to_be_updated = 1;
+        end 
+        
         // In line draw mode we increment the pixel positions when reading from or writing to DATA1
         // We also increment (depending on overflow) ADDR1 after updating the pixel positions
         if ((do_write || do_read) && access_addr == 5'h04 && fx_addr1_mode_r == MODE_LINE_DRAW) begin
             fx_pixel_position_needs_to_be_updated = 1;
             fx_increment_on_overflow_next = 1;
+        end
+        // In polygon filler mode we increment the pixel positions when reading from or writing to DATA1
+        // We also calculate the new ADDR1 after updating the pixel positions
+        if (do_read && access_addr == 5'h04 && fx_addr1_mode_r == MODE_POLY_FILL) begin
+            fx_pixel_position_needs_to_be_updated = 1;
+            fx_calculate_addr1_based_on_position_next = 1;
         end
 
         if(fx_pixel_position_needs_to_be_updated) begin
@@ -353,6 +399,7 @@ module addr_data(
         end 
         if (do_write && access_addr == 5'h09 && dc_select == 4) begin
             fx_pixel_pos_x_next[16:9] = write_data;
+            fx_calculate_addr1_based_on_position_next = 1;
         end 
         if (do_write && access_addr == 5'h09 && dc_select == 5) begin
             fx_pixel_pos_x_next[8:1] = write_data;
@@ -366,14 +413,15 @@ module addr_data(
         if (do_write && access_addr == 5'h0A && dc_select == 3) begin
             fx_pixel_incr_x_times_32_next = write_data[7];
             fx_pixel_incr_x_next[14:8] = write_data[6:0];
-            if (fx_addr1_mode_r == MODE_LINE_DRAW) begin
-                // We reset the X sub pixel position in line draw mode
+            if (fx_addr1_mode_r == MODE_LINE_DRAW || fx_addr1_mode_r == MODE_POLY_FILL) begin
+                // We reset the X sub pixel position in line draw and polygon fill mode
                 fx_pixel_pos_x_next[8:0] = 9'd256; // half a pixel
             end
         end 
         if (do_write && access_addr == 5'h0A && dc_select == 4) begin
             fx_pixel_pos_x_next[19:17] = write_data[2:0];
             fx_pixel_pos_x_next[0] = write_data[7];
+            fx_calculate_addr1_based_on_position_next = 1;
         end 
         if (do_write && access_addr == 5'h0A && dc_select == 5) begin
             fx_pixel_pos_y_next[8:1] = write_data;
@@ -384,26 +432,45 @@ module addr_data(
         end 
         if (do_write && access_addr == 5'h0B && dc_select == 4) begin
             fx_pixel_pos_y_next[16:9] = write_data;
+            fx_calculate_addr1_based_on_position_next = 1;
         end 
+        if (do_write && access_addr == 5'h0B && dc_select == 5) begin
+           // Not writable (read-only)
+        end 
+
         if (do_write && access_addr == 5'h0C && dc_select == 3) begin
             fx_pixel_incr_y_times_32_next = write_data[7];
             fx_pixel_incr_y_next[14:8] = write_data[6:0];
             // Note: we dont need to reset the Y sub pixel position in line draw mode, since it doesnt use it. But it takes LUTs when we remove it, so we leave this here
-            if (fx_addr1_mode_r == MODE_LINE_DRAW) begin
-                // We reset the Y sub pixel position in line draw mode
+            if (fx_addr1_mode_r == MODE_LINE_DRAW || fx_addr1_mode_r == MODE_POLY_FILL) begin
+                // We reset the Y sub pixel position in line draw and polygon fill mode
                 fx_pixel_pos_y_next[8:0] = 9'd256; // half a pixel
             end
         end 
         if (do_write && access_addr == 5'h0C && dc_select == 4) begin
             fx_pixel_pos_y_next[19:17] = write_data[2:0];
+            fx_calculate_addr1_based_on_position_next = 1;
             fx_pixel_pos_y_next[0] = write_data[7];
         end 
+        if (do_write && access_addr == 5'h0C && dc_select == 5) begin
+           // Not writable (read-only)
+        end 
+        
+        //////////////////////////////////////////////////////////////////////////
+        // Start of fill line calculation
+        //////////////////////////////////////////////////////////////////////////
+
+        // Note: we are sign extending the x pixel position here, since it might be a negative number
+        vram_addr_1_start_of_horizontal_fill_line = vram_addr_0_r + { {6{fx_pixel_pos_x_r[19]}}, fx_pixel_pos_x_r[19:9]};
+
         //////////////////////////////////////////////////////////////////////////
         // ADDR1 control logic and assignment
         //////////////////////////////////////////////////////////////////////////
 
         if (do_write && (access_addr == 5'h00 || access_addr == 5'h01 || access_addr == 5'h02) && vram_addr_select) begin
             fx_vram_addr_1_needs_to_be_changed = ADDR1_SET;
+        end else if (do_write && access_addr == 5'h04 && fx_addr1_mode_r == MODE_POLY_FILL) begin
+            fx_vram_addr_1_needs_to_be_changed = ADDR1_INCR_1;  // addr_1 needs to be set with vram_addr_1_incr_decr_1
         end else if ((do_write || do_read) && access_addr == 5'h04 && fx_addr1_mode_r == MODE_NORMAL) begin
             // in normal addr1-mode we do a "normal" increment
             fx_vram_addr_1_needs_to_be_changed = ADDR1_INCR_1;  // addr_1 needs to be set with vram_addr_1_incr_decr_1
@@ -415,6 +482,9 @@ module addr_data(
         end else if (fx_increment_on_overflow_r && fx_addr1_mode_r == MODE_LINE_DRAW && !fx_pixel_pos_x_r[9]) begin
             fx_vram_addr_1_needs_to_be_changed = ADDR1_INCR_1; // addr_1 needs to be set with vram_addr_1_incr_decr_1
             fx_increment_on_overflow_next = 0;
+        end else if (fx_calculate_addr1_based_on_position_r && fx_addr1_mode_r == MODE_POLY_FILL) begin
+            fx_vram_addr_1_needs_to_be_changed = ADDR1_ADDR0_X1; // addr_1 needs to be set with ADDR0 + x pixel position
+            fx_calculate_addr1_based_on_position_next = 0;
         end
 
         case (fx_vram_addr_1_needs_to_be_changed)
@@ -425,6 +495,10 @@ module addr_data(
             ADDR1_INCR_1_AND_0: begin
                 // We increment addr1 with both its own incrementer as well as the incrementer of addr0
                 vram_addr_1_next = vram_addr_1_incr_decr_10;
+            end
+            ADDR1_ADDR0_X1: begin 
+                // We set the address with ADDR0 + x pixel position: this is the new starting position on the left side of the horizontal fill line
+                vram_addr_1_next = vram_addr_1_start_of_horizontal_fill_line;
             end
             default: begin  // ADDR1_UNTOUCHED, ADDR1_SET (and the unused values)
                 // We leave addr1 unchanged, unless just externally/explcitly set
@@ -478,6 +552,7 @@ module addr_data(
             fx_pixel_incr_x_r             <= 0;
             fx_pixel_incr_y_r             <= 0;
             
+            fx_calculate_addr1_based_on_position_r <= 0;
             fx_increment_on_overflow_r    <= 0;
 
             ib_addr_r                     <= 0;
@@ -511,6 +586,7 @@ module addr_data(
             fx_pixel_incr_x_r             <= fx_pixel_incr_x_next;
             fx_pixel_incr_y_r             <= fx_pixel_incr_y_next;
             
+            fx_calculate_addr1_based_on_position_r <= fx_calculate_addr1_based_on_position_next;
             fx_increment_on_overflow_r    <= fx_increment_on_overflow_next;
 
             ib_addr_r                     <= ib_addr_next;

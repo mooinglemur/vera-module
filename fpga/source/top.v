@@ -60,6 +60,9 @@ module top(
     wire        ib_write_r;
     wire        ib_do_access_r;
     
+    wire  [7:0] fx_fill_length_low;
+    wire  [7:0] fx_fill_length_high;
+    
     wire  [1:0] fx_addr1_mode;
 
     reg        vram_addr_select_r,            vram_addr_select_next;
@@ -173,6 +176,7 @@ module top(
             case(dc_select_r)
                 6'h0: rddata = dc_vscale_r;
                 6'h1: rddata = dc_active_vstart_r[8:1];
+                6'h5: rddata = fx_fill_length_low;
                 default: rddata = 8'h01;
             endcase
         end
@@ -180,6 +184,7 @@ module top(
             case(dc_select_r)
                 6'h0: rddata = dc_border_color_r;
                 6'h1: rddata = dc_active_vstop_r[8:1];
+                6'h5: rddata = fx_fill_length_high;
                 default: rddata = 8'h01;
             endcase
         end
@@ -610,7 +615,10 @@ module top(
         .ib_do_access(ib_do_access_r),
         .ib_write(ib_write_r),
 
-        .fx_addr1_mode(fx_addr1_mode)
+        .fx_addr1_mode(fx_addr1_mode),
+    
+        .fx_fill_length_low(fx_fill_length_low),
+        .fx_fill_length_high(fx_fill_length_high)
     );
 
     //////////////////////////////////////////////////////////////////////////
