@@ -222,7 +222,7 @@ module addr_data(
     
     wire       fx_fill_length_more_than_15 = fx_fill_length[9:4] != 0;
     
-    // Note: If we have a negative number (or too high: upper 2 bits should neven be 11b) we return 'zero' value and fill_length_more_than_15 = 1, to indicate we have an invalid value.
+    // Note: If we have a negative number (or too high: upper 2 bits should never be 11b) we return 'zero' value and fill_length_more_than_15 = 1, to indicate we have an invalid value.
     wire      fx_fill_length_overflow = fx_fill_length[9:8] == 2'b11;
     
     always @* begin
@@ -510,10 +510,10 @@ module addr_data(
         // Determination of what to fetch ahead
         //////////////////////////////////////////////////////////////////////////
 
-        if (fx_vram_addr_0_needs_to_be_changed) begin
+        if (fx_vram_addr_0_needs_to_be_changed != ADDR0_UNTOUCHED) begin
             fetch_ahead_port_next = 0;
             fetch_ahead_next = 1;
-        end else if (fx_vram_addr_1_needs_to_be_changed) begin
+        end else if (fx_vram_addr_1_needs_to_be_changed != ADDR1_UNTOUCHED) begin
             fetch_ahead_next = 1;
             fetch_ahead_port_next = 1;
         end
