@@ -69,6 +69,7 @@ module addr_data(
         MODE_NORMAL        = 2'b00,
         MODE_LINE_DRAW     = 2'b01,
         MODE_POLY_FILL     = 2'b10,
+        MODE_AFFINE        = 2'b11,
         
         ADDR0_UNTOUCHED    = 2'b00,   // ADDR0 is untouched and should stay the same
         ADDR0_SET          = 2'b01,   // ADDR0 is (partially) set by the CPU
@@ -77,11 +78,19 @@ module addr_data(
         ADDR1_UNTOUCHED    = 3'b000,  // ADDR1 is untouched and should stay the same
         ADDR1_INCR_1       = 3'b001,  // ADDR1 should be increment with the increment of ADDR1
         ADDR1_INCR_1_AND_0 = 3'b010,  // ADDR1 should be increment with both the increment of ADDR1 and the increment of ADDR0
+        ADDR1_TILEDATA     = 3'b011,  // ADDR1 should be set to the address of the tiledata (using x/y pos in tile)
+        ADDR1_MAP_LOOKUP   = 3'b101,  // ADDR1 should be set to the address of the tilemap (to do lookup of the tileindex at x/y)
         ADDR1_ADDR0_X1     = 3'b110,  // ADDR1 should be set to ADDR0 + X1
         ADDR1_SET          = 3'b111;  // ADDR1 is (partially) set by the CPU
 
 
     reg  [1:0] fx_addr1_mode_r,               fx_addr1_mode_next;
+    
+    reg  [5:0] fx_tiledata_base_address_r,    fx_tiledata_base_address_next;
+    reg  [5:0] fx_map_base_address_r,         fx_map_base_address_next;
+    reg        fx_apply_clip_r,               fx_apply_clip_next;
+    
+    reg  [1:0] fx_map_size_r,                 fx_map_size_next;
     
     // Pixel positions are fixed point numbers with an 11-bit integer part and a 9-bit fractional part (11.9)
     reg [19:0] fx_pixel_pos_x_r,              fx_pixel_pos_x_next;
@@ -189,6 +198,8 @@ module addr_data(
     reg         fetch_ahead_r,  fetch_ahead_next;
     reg         fetch_ahead_port_r,  fetch_ahead_port_next;
     
+    reg         fx_use_result_as_tileindex_r, fx_use_result_as_tileindex_next;
+    reg         fx_calculate_addr1_based_on_tileindex_r, fx_calculate_addr1_based_on_tileindex_next;
     reg         fx_calculate_addr1_based_on_position_r, fx_calculate_addr1_based_on_position_next;
     reg         fx_increment_on_overflow_r, fx_increment_on_overflow_next;
 
@@ -200,8 +211,17 @@ module addr_data(
     reg         vram_addr_1_untouched_or_set_bit16;
     reg   [7:0] vram_addr_1_untouched_or_set_high, vram_addr_1_untouched_or_set_low;
     
+    reg  [16:0] vram_addr_1_tileindex_lookup;
+    reg  [16:0] vram_addr_1_tiledata_using_tilemap;
     reg  [16:0] vram_addr_1_start_of_horizontal_fill_line;
-
+    
+    reg  [10:0] fx_pixel_position_in_map_x, fx_pixel_position_in_map_y;
+    reg   [2:0] fx_pixel_position_in_tile_x, fx_pixel_position_in_tile_y;
+    
+    reg  [13:0] fx_tile_position_repeat;   // 128x128 tile map needs 14 bits for tile position
+    reg   [7:0] fx_tile_index_looked_up;
+    reg         fx_position_is_outside_map;
+    
     reg  [1:0]  fx_vram_addr_0_needs_to_be_changed;
     reg  [2:0]  fx_vram_addr_1_needs_to_be_changed;
     reg         fx_pixel_position_needs_to_be_updated;
@@ -251,6 +271,13 @@ module addr_data(
         vram_data1_next                  = vram_data1_r;
         
         fx_addr1_mode_next               = fx_addr1_mode_r;
+        
+        fx_tiledata_base_address_next    = fx_tiledata_base_address_r;
+        
+        fx_map_base_address_next         = fx_map_base_address_r;
+        fx_apply_clip_next               = fx_apply_clip_r;
+        
+        fx_map_size_next                 = fx_map_size_r;
 
         fx_pixel_pos_x_next              = fx_pixel_pos_x_r;
         fx_pixel_pos_y_next              = fx_pixel_pos_y_r;
@@ -261,8 +288,10 @@ module addr_data(
         fx_pixel_incr_x_next             = fx_pixel_incr_x_r;
         fx_pixel_incr_y_next             = fx_pixel_incr_y_r;
 
+        fx_use_result_as_tileindex_next  = fx_use_result_as_tileindex_r;
         fx_calculate_addr1_based_on_position_next = fx_calculate_addr1_based_on_position_r;
         fx_increment_on_overflow_next    = fx_increment_on_overflow_r;
+        fx_calculate_addr1_based_on_tileindex_next = fx_calculate_addr1_based_on_tileindex_r;
 
         fx_vram_addr_0_needs_to_be_changed = 0;
         fx_vram_addr_1_needs_to_be_changed = 0;
@@ -285,6 +314,12 @@ module addr_data(
         end
         if (save_result_r && save_result_port_r) begin
             vram_data1_next = vram_rddata;
+        end
+        if (save_result_r && save_result_port_r && fx_use_result_as_tileindex_r) begin
+            // When we want to use the result from VRAM as tileindex we need to trigger
+            // the calculation of addr1 based on the tileindex that has just been retrieved
+            fx_use_result_as_tileindex_next = 0;
+            fx_calculate_addr1_based_on_tileindex_next = 1;
         end
 
         //////////////////////////////////////////////////////////////////////////
@@ -331,7 +366,6 @@ module addr_data(
         vram_addr_0_untouched_or_set = { vram_addr_0_untouched_or_set_bit16, vram_addr_0_untouched_or_set_high, vram_addr_0_untouched_or_set_low};
         vram_addr_1_untouched_or_set = { vram_addr_1_untouched_or_set_bit16, vram_addr_1_untouched_or_set_high, vram_addr_1_untouched_or_set_low};
 
-
         //////////////////////////////////////////////////////////////////////////
         // ADDR0 control logic and assignment
         //////////////////////////////////////////////////////////////////////////
@@ -352,7 +386,7 @@ module addr_data(
         // Reads from and writes to addresses 03 and 04 (DATA0 and DATA1)
         //////////////////////////////////////////////////////////////////////////
 
-        // In polygon mode we increment the subpixel positions when reading from DATA0
+        // In polygon mode we increment the pixel positions when reading from DATA0
         if (do_read && access_addr == 5'h03 && fx_addr1_mode_r == MODE_POLY_FILL) begin
             fx_pixel_position_needs_to_be_updated = 1;
         end 
@@ -362,6 +396,12 @@ module addr_data(
         if ((do_write || do_read) && access_addr == 5'h04 && fx_addr1_mode_r == MODE_LINE_DRAW) begin
             fx_pixel_position_needs_to_be_updated = 1;
             fx_increment_on_overflow_next = 1;
+        end
+        // In affine mode we increment the pixel positions when reading from or writing to DATA1
+        // We also calculate the new ADDR1 after updating the pixel positions
+        if ((do_write || do_read) && access_addr == 5'h04 && fx_addr1_mode_r == MODE_AFFINE) begin
+            fx_pixel_position_needs_to_be_updated = 1;
+            fx_calculate_addr1_based_on_position_next = 1;
         end
         // In polygon filler mode we increment the pixel positions when reading from or writing to DATA1
         // We also calculate the new ADDR1 after updating the pixel positions
@@ -394,22 +434,21 @@ module addr_data(
         if (do_write && access_addr == 5'h09 && dc_select == 2) begin
             fx_addr1_mode_next = write_data[1:0];
         end
+        if (do_write && access_addr == 5'h0A && dc_select == 2) begin
+            fx_tiledata_base_address_next = write_data[7:2];
+            fx_apply_clip_next = write_data[1];
+        end 
+        if (do_write && access_addr == 5'h0B && dc_select == 2) begin
+            fx_map_base_address_next = write_data[7:2];
+            fx_map_size_next = write_data[1:0];
+        end 
         if (do_write && access_addr == 5'h09 && dc_select == 3) begin
             fx_pixel_incr_x_next[7:0] = write_data;
         end 
-        if (do_write && access_addr == 5'h09 && dc_select == 4) begin
-            fx_pixel_pos_x_next[16:9] = write_data;
-            fx_calculate_addr1_based_on_position_next = 1;
-        end 
-        if (do_write && access_addr == 5'h09 && dc_select == 5) begin
-            fx_pixel_pos_x_next[8:1] = write_data;
-        end 
-
         if (do_write && access_addr == 5'h0A && dc_select == 3 && fx_addr1_mode_r == MODE_LINE_DRAW) begin
             // In line draw mode we also reset the overflow bit
             fx_pixel_pos_x_next[9] = 1'b0;
         end
-
         if (do_write && access_addr == 5'h0A && dc_select == 3) begin
             fx_pixel_incr_x_times_32_next = write_data[7];
             fx_pixel_incr_x_next[14:8] = write_data[6:0];
@@ -418,26 +457,9 @@ module addr_data(
                 fx_pixel_pos_x_next[8:0] = 9'd256; // half a pixel
             end
         end 
-        if (do_write && access_addr == 5'h0A && dc_select == 4) begin
-            fx_pixel_pos_x_next[19:17] = write_data[2:0];
-            fx_pixel_pos_x_next[0] = write_data[7];
-            fx_calculate_addr1_based_on_position_next = 1;
-        end 
-        if (do_write && access_addr == 5'h0A && dc_select == 5) begin
-            fx_pixel_pos_y_next[8:1] = write_data;
-        end 
-
         if (do_write && access_addr == 5'h0B && dc_select == 3) begin
             fx_pixel_incr_y_next[7:0] = write_data;
         end 
-        if (do_write && access_addr == 5'h0B && dc_select == 4) begin
-            fx_pixel_pos_y_next[16:9] = write_data;
-            fx_calculate_addr1_based_on_position_next = 1;
-        end 
-        if (do_write && access_addr == 5'h0B && dc_select == 5) begin
-           // Not writable (read-only)
-        end 
-
         if (do_write && access_addr == 5'h0C && dc_select == 3) begin
             fx_pixel_incr_y_times_32_next = write_data[7];
             fx_pixel_incr_y_next[14:8] = write_data[6:0];
@@ -447,14 +469,82 @@ module addr_data(
                 fx_pixel_pos_y_next[8:0] = 9'd256; // half a pixel
             end
         end 
+        
+        if (do_write && access_addr == 5'h09 && dc_select == 4) begin
+            fx_pixel_pos_x_next[16:9] = write_data;
+            fx_calculate_addr1_based_on_position_next = 1;
+        end 
+        if (do_write && access_addr == 5'h0A && dc_select == 4) begin
+            fx_pixel_pos_x_next[19:17] = write_data[2:0];
+            fx_pixel_pos_x_next[0] = write_data[7];
+            fx_calculate_addr1_based_on_position_next = 1;
+        end 
+        if (do_write && access_addr == 5'h0B && dc_select == 4) begin
+            fx_pixel_pos_y_next[16:9] = write_data;
+            fx_calculate_addr1_based_on_position_next = 1;
+        end 
         if (do_write && access_addr == 5'h0C && dc_select == 4) begin
             fx_pixel_pos_y_next[19:17] = write_data[2:0];
             fx_calculate_addr1_based_on_position_next = 1;
             fx_pixel_pos_y_next[0] = write_data[7];
         end 
+        
+        if (do_write && access_addr == 5'h09 && dc_select == 5) begin
+            fx_pixel_pos_x_next[8:1] = write_data;
+        end 
+        if (do_write && access_addr == 5'h0A && dc_select == 5) begin
+            fx_pixel_pos_y_next[8:1] = write_data;
+        end 
+        if (do_write && access_addr == 5'h0B && dc_select == 5) begin
+           // Not writable (read-only)
+        end 
         if (do_write && access_addr == 5'h0C && dc_select == 5) begin
            // Not writable (read-only)
         end 
+        
+        //////////////////////////////////////////////////////////////////////////
+        // Tile map calculations
+        //////////////////////////////////////////////////////////////////////////
+
+        fx_pixel_position_in_map_x = fx_pixel_pos_x_r[19:9];
+        fx_pixel_position_in_map_y = fx_pixel_pos_y_r[19:9];
+        
+        fx_pixel_position_in_tile_x = fx_pixel_position_in_map_x[2:0];  // x = x pixel position in map % 8 
+        fx_pixel_position_in_tile_y = fx_pixel_position_in_map_y[2:0];  // y = y pixel position in map % 8
+        
+        fx_position_is_outside_map = 1;
+        case (fx_map_size_r)
+            2'b00: begin   // 2x2
+                fx_tile_position_repeat = {fx_pixel_position_in_map_y[3], fx_pixel_position_in_map_x[3]};
+                if (fx_pixel_position_in_map_y[10:4] == 0 && fx_pixel_position_in_map_x[10:4] == 0)
+                    fx_position_is_outside_map = 0;
+            end
+            2'b01: begin   // 8x8
+                fx_tile_position_repeat = {fx_pixel_position_in_map_y[5:3], fx_pixel_position_in_map_x[5:3]};
+                if (fx_pixel_position_in_map_y[10:6] == 0 && fx_pixel_position_in_map_x[10:6] == 0)
+                    fx_position_is_outside_map = 0;
+            end
+            2'b10: begin   // 32x32
+                fx_tile_position_repeat = {fx_pixel_position_in_map_y[7:3], fx_pixel_position_in_map_x[7:3]};
+                if (fx_pixel_position_in_map_y[10:8] == 0 && fx_pixel_position_in_map_x[10:8] == 0)
+                    fx_position_is_outside_map = 0;
+            end
+            3'b11: begin   // 128x128
+                fx_tile_position_repeat = {fx_pixel_position_in_map_y[9:3], fx_pixel_position_in_map_x[9:3]};
+                if (fx_pixel_position_in_map_y[10] == 0 && fx_pixel_position_in_map_x[10] == 0)
+                    fx_position_is_outside_map = 0;
+            end
+        endcase
+
+        if (fx_apply_clip_r && fx_position_is_outside_map) begin
+            // when clipping in tiled mode, our tile index should be set to 0
+            fx_tile_index_looked_up = 0;
+        end else begin
+            fx_tile_index_looked_up = vram_data1_r;
+        end
+        
+        vram_addr_1_tileindex_lookup = {fx_map_base_address_r, 11'b0} + fx_tile_position_repeat;
+        vram_addr_1_tiledata_using_tilemap = {fx_tiledata_base_address_r, 11'b0} + {fx_tile_index_looked_up, fx_pixel_position_in_tile_y, fx_pixel_position_in_tile_x};
         
         //////////////////////////////////////////////////////////////////////////
         // Start of fill line calculation
@@ -469,6 +559,12 @@ module addr_data(
 
         if (do_write && (access_addr == 5'h00 || access_addr == 5'h01 || access_addr == 5'h02) && vram_addr_select) begin
             fx_vram_addr_1_needs_to_be_changed = ADDR1_SET;
+        end else if (fx_calculate_addr1_based_on_position_r && fx_addr1_mode_r == MODE_AFFINE) begin
+            fx_vram_addr_1_needs_to_be_changed = ADDR1_MAP_LOOKUP;
+            fx_calculate_addr1_based_on_position_next = 0;
+        end else if (fx_calculate_addr1_based_on_tileindex_r) begin
+            fx_vram_addr_1_needs_to_be_changed = ADDR1_TILEDATA; // Addr_1 needs to be set with tilebase + tileposition based on rdata
+            fx_calculate_addr1_based_on_tileindex_next = 0;
         end else if (do_write && access_addr == 5'h04 && fx_addr1_mode_r == MODE_POLY_FILL) begin
             fx_vram_addr_1_needs_to_be_changed = ADDR1_INCR_1;  // addr_1 needs to be set with vram_addr_1_incr_decr_1
         end else if ((do_write || do_read) && access_addr == 5'h04 && fx_addr1_mode_r == MODE_NORMAL) begin
@@ -496,11 +592,20 @@ module addr_data(
                 // We increment addr1 with both its own incrementer as well as the incrementer of addr0
                 vram_addr_1_next = vram_addr_1_incr_decr_10;
             end
+            ADDR1_TILEDATA: begin
+                // We use the tile index we just looked up from the tilemap
+                vram_addr_1_next = vram_addr_1_tiledata_using_tilemap;
+            end
+            ADDR1_MAP_LOOKUP: begin
+                // We set the address to the lookup place in the tile map (in order to retrieve the tileindex in the tile map)
+                vram_addr_1_next = vram_addr_1_tileindex_lookup;
+                fx_use_result_as_tileindex_next = 1;
+            end
             ADDR1_ADDR0_X1: begin 
                 // We set the address with ADDR0 + x pixel position: this is the new starting position on the left side of the horizontal fill line
                 vram_addr_1_next = vram_addr_1_start_of_horizontal_fill_line;
             end
-            default: begin  // ADDR1_UNTOUCHED, ADDR1_SET (and the unused values)
+            default: begin  // ADDR1_UNTOUCHED, ADDR1_SET (and the unused value)
                 // We leave addr1 unchanged, unless just externally/explcitly set
                 vram_addr_1_next = vram_addr_1_untouched_or_set;
             end
@@ -542,6 +647,12 @@ module addr_data(
             vram_data1_r                  <= 0;
 
             fx_addr1_mode_r               <= 0;
+        
+            fx_tiledata_base_address_r    <= 0;
+            fx_map_base_address_r         <= 0;
+            fx_apply_clip_r               <= 0;
+            
+            fx_map_size_r                 <= 0;
             
             fx_pixel_pos_x_r              <= 20'd256; // half a pixel
             fx_pixel_pos_y_r              <= 20'd256; // half a pixel
@@ -552,8 +663,10 @@ module addr_data(
             fx_pixel_incr_x_r             <= 0;
             fx_pixel_incr_y_r             <= 0;
             
+            fx_use_result_as_tileindex_r  <= 0;
             fx_calculate_addr1_based_on_position_r <= 0;
             fx_increment_on_overflow_r    <= 0;
+            fx_calculate_addr1_based_on_tileindex_r <= 0;
 
             ib_addr_r                     <= 0;
             ib_wrdata_r                   <= 0;
@@ -577,6 +690,12 @@ module addr_data(
 
             fx_addr1_mode_r               <= fx_addr1_mode_next;
             
+            fx_tiledata_base_address_r    <= fx_tiledata_base_address_next;
+            fx_map_base_address_r         <= fx_map_base_address_next;
+            fx_apply_clip_r               <= fx_apply_clip_next;
+            
+            fx_map_size_r                 <= fx_map_size_next;
+            
             fx_pixel_pos_x_r              <= fx_pixel_pos_x_next;
             fx_pixel_pos_y_r              <= fx_pixel_pos_y_next;
 
@@ -586,8 +705,10 @@ module addr_data(
             fx_pixel_incr_x_r             <= fx_pixel_incr_x_next;
             fx_pixel_incr_y_r             <= fx_pixel_incr_y_next;
             
+            fx_use_result_as_tileindex_r  <= fx_use_result_as_tileindex_next;
             fx_calculate_addr1_based_on_position_r <= fx_calculate_addr1_based_on_position_next;
             fx_increment_on_overflow_r    <= fx_increment_on_overflow_next;
+            fx_calculate_addr1_based_on_tileindex_r <= fx_calculate_addr1_based_on_tileindex_next;
 
             ib_addr_r                     <= ib_addr_next;
             ib_wrdata_r                   <= ib_wrdata_next;
