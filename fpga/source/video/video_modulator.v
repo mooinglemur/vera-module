@@ -11,7 +11,7 @@ module video_modulator(
     input  wire        sync_n_in,
 
     output reg   [5:0] luma,
-    output reg   [5:0] chroma);
+    output reg   [5:0] chroma) /* synthesis syn_hier = "hard" */;
 
     parameter Y_R   = 27; // 38; //  0.299
     parameter Y_G   = 53; // 75; //  0.587

@@ -56,6 +56,11 @@ module top(
     wire  [7:0] vram_data1_r;
     
     wire [16:0] ib_addr_r;
+    wire        ib_cache_write_enabled_r;
+    wire        ib_transparency_enabled_r;
+    wire        ib_one_byte_cache_cycling_r;
+    wire [31:0] ib_mult_accum_cache32_r;
+    wire  [7:0] ib_cache8_r;
     wire  [7:0] ib_wrdata_r;
     wire        ib_write_r;
     wire        ib_do_access_r;
@@ -63,6 +68,11 @@ module top(
     wire  [7:0] fx_fill_length_low;
     wire  [7:0] fx_fill_length_high;
     
+    wire        fx_transparency_enabled;
+    wire        fx_cache_write_enabled;
+    wire        fx_cache_fill_enabled;
+    wire        fx_one_byte_cache_cycling;
+    wire        fx_16bit_hop;
     wire  [1:0] fx_addr1_mode;
 
     reg        vram_addr_select_r,            vram_addr_select_next;
@@ -161,7 +171,7 @@ module top(
             case(dc_select_r)
                 6'h0: rddata = {current_field, sprites_enabled_r, l1_enabled_r, l0_enabled_r, line_interlace_mode_r, chroma_disable_r, video_output_mode_r};
                 6'h1: rddata = dc_active_hstart_r[9:2];
-                6'h2: rddata = {6'b0, fx_addr1_mode};
+                6'h2: rddata = {fx_transparency_enabled, fx_cache_write_enabled, fx_cache_fill_enabled, fx_one_byte_cache_cycling, fx_16bit_hop, 1'b0, fx_addr1_mode};
                 default: rddata = "V";
             endcase
         end
@@ -611,10 +621,20 @@ module top(
         .vram_data1(vram_data1_r),
         
         .ib_addr(ib_addr_r),
+        .ib_cache_write_enabled(ib_cache_write_enabled_r),
+        .ib_transparency_enabled(ib_transparency_enabled_r),
+        .ib_one_byte_cache_cycling(ib_one_byte_cache_cycling_r),
+        .ib_mult_accum_cache32(ib_mult_accum_cache32_r),
+        .ib_cache8(ib_cache8_r),
         .ib_wrdata(ib_wrdata_r),
         .ib_do_access(ib_do_access_r),
         .ib_write(ib_write_r),
 
+        .fx_transparency_enabled(fx_transparency_enabled),
+        .fx_cache_write_enabled(fx_cache_write_enabled),
+        .fx_cache_fill_enabled(fx_cache_fill_enabled),
+        .fx_one_byte_cache_cycling(fx_one_byte_cache_cycling),
+        .fx_16bit_hop(fx_16bit_hop),
         .fx_addr1_mode(fx_addr1_mode),
     
         .fx_fill_length_low(fx_fill_length_low),
@@ -644,6 +664,11 @@ module top(
 
         // Interface 0 - 8-bit (highest priority)
         .if0_addr(ib_addr_r),
+        .if0_cache_write_enabled(ib_cache_write_enabled_r),
+        .if0_transparency_enabled(ib_transparency_enabled_r),
+        .if0_one_byte_cache_cycling(ib_one_byte_cache_cycling_r),
+        .if0_mult_accum_cache32(ib_mult_accum_cache32_r),
+        .if0_cache8(ib_cache8_r),
         .if0_wrdata(ib_wrdata_r),
         .if0_rddata(vram_rddata),
         .if0_strobe(ib_do_access_r),
