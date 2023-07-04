@@ -78,6 +78,9 @@
         <Source name="source/audio/pcm.v" type="Verilog" type_short="Verilog">
             <Options/>
         </Source>
+        <Source name="source/mult_accum.v" type="Verilog" type_short="Verilog">
+            <Options/>
+        </Source>
         <Source name="source/vera_module.ldc" type="LSE Design Constraints File" type_short="LDC">
             <Options/>
         </Source>
