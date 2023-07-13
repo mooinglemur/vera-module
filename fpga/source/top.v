@@ -48,14 +48,20 @@ module top(
     //////////////////////////////////////////////////////////////////////////
     wire [16:0] vram_addr_0_r;
     wire [16:0] vram_addr_1_r;
+    wire        vram_addr_nib_0_r;
+    wire        vram_addr_nib_1_r;
     wire  [3:0] vram_addr_incr_0_r;
     wire  [3:0] vram_addr_incr_1_r;
+    wire        vram_addr_nib_incr_0_r;
+    wire        vram_addr_nib_incr_1_r;
     wire        vram_addr_decr_0_r;
     wire        vram_addr_decr_1_r;
     wire  [7:0] vram_data0_r;
     wire  [7:0] vram_data1_r;
     
     wire [16:0] ib_addr_r;
+    wire        ib_addr_nibble_r;
+    wire        ib_4bit_mode_r;
     wire        ib_cache_write_enabled_r;
     wire        ib_transparency_enabled_r;
     wire        ib_one_byte_cache_cycling_r;
@@ -73,6 +79,7 @@ module top(
     wire        fx_cache_fill_enabled;
     wire        fx_one_byte_cache_cycling;
     wire        fx_16bit_hop;
+    wire        fx_4bit_mode;
     wire  [1:0] fx_addr1_mode;
 
     reg        vram_addr_select_r,            vram_addr_select_next;
@@ -158,7 +165,9 @@ module top(
     always @* case (extbus_a)
         5'h00: rddata = vram_addr_select_r ? vram_addr_1_r[7:0] : vram_addr_0_r[7:0];
         5'h01: rddata = vram_addr_select_r ? vram_addr_1_r[15:8] : vram_addr_0_r[15:8];
-        5'h02: rddata = vram_addr_select_r ? {vram_addr_incr_1_r, vram_addr_decr_1_r, 2'b0, vram_addr_1_r[16]} : {vram_addr_incr_0_r, vram_addr_decr_0_r, 2'b0, vram_addr_0_r[16]};
+        5'h02: rddata = vram_addr_select_r 
+                            ? {vram_addr_incr_1_r, vram_addr_decr_1_r, vram_addr_nib_incr_1_r, vram_addr_nib_1_r, vram_addr_1_r[16]} 
+                            : {vram_addr_incr_0_r, vram_addr_decr_0_r, vram_addr_nib_incr_0_r, vram_addr_nib_0_r, vram_addr_0_r[16]};
         5'h03: rddata = vram_data0_r;
         5'h04: rddata = vram_data1_r;
         5'h05: rddata = {1'b0, dc_select_r, vram_addr_select_r};
@@ -171,7 +180,7 @@ module top(
             case(dc_select_r)
                 6'h0: rddata = {current_field, sprites_enabled_r, l1_enabled_r, l0_enabled_r, line_interlace_mode_r, chroma_disable_r, video_output_mode_r};
                 6'h1: rddata = dc_active_hstart_r[9:2];
-                6'h2: rddata = {fx_transparency_enabled, fx_cache_write_enabled, fx_cache_fill_enabled, fx_one_byte_cache_cycling, fx_16bit_hop, 1'b0, fx_addr1_mode};
+                6'h2: rddata = {fx_transparency_enabled, fx_cache_write_enabled, fx_cache_fill_enabled, fx_one_byte_cache_cycling, fx_16bit_hop, fx_4bit_mode, fx_addr1_mode};
                 default: rddata = "V";
             endcase
         end
@@ -613,14 +622,20 @@ module top(
 
         .vram_addr_0(vram_addr_0_r),
         .vram_addr_1(vram_addr_1_r),
+        .vram_addr_nib_0(vram_addr_nib_0_r),
+        .vram_addr_nib_1(vram_addr_nib_1_r),
         .vram_addr_incr_0(vram_addr_incr_0_r),
         .vram_addr_incr_1(vram_addr_incr_1_r),
+        .vram_addr_nib_incr_0(vram_addr_nib_incr_0_r),
+        .vram_addr_nib_incr_1(vram_addr_nib_incr_1_r),
         .vram_addr_decr_0(vram_addr_decr_0_r),
         .vram_addr_decr_1(vram_addr_decr_1_r),
         .vram_data0(vram_data0_r),
         .vram_data1(vram_data1_r),
         
         .ib_addr(ib_addr_r),
+        .ib_addr_nibble(ib_addr_nibble_r),
+        .ib_4bit_mode(ib_4bit_mode_r),
         .ib_cache_write_enabled(ib_cache_write_enabled_r),
         .ib_transparency_enabled(ib_transparency_enabled_r),
         .ib_one_byte_cache_cycling(ib_one_byte_cache_cycling_r),
@@ -635,6 +650,7 @@ module top(
         .fx_cache_fill_enabled(fx_cache_fill_enabled),
         .fx_one_byte_cache_cycling(fx_one_byte_cache_cycling),
         .fx_16bit_hop(fx_16bit_hop),
+        .fx_4bit_mode(fx_4bit_mode),
         .fx_addr1_mode(fx_addr1_mode),
     
         .fx_fill_length_low(fx_fill_length_low),
@@ -664,6 +680,8 @@ module top(
 
         // Interface 0 - 8-bit (highest priority)
         .if0_addr(ib_addr_r),
+        .if0_addr_nibble(ib_addr_nibble_r),
+        .if0_4bit_mode(ib_4bit_mode_r),
         .if0_cache_write_enabled(ib_cache_write_enabled_r),
         .if0_transparency_enabled(ib_transparency_enabled_r),
         .if0_one_byte_cache_cycling(ib_one_byte_cache_cycling_r),
