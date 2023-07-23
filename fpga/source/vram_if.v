@@ -5,6 +5,8 @@ module vram_if(
 
     // Interface 0 - 8-bit (highest priority)
     input  wire [16:0] if0_addr,
+    input  wire        if0_addr_nibble,
+    input  wire        if0_4bit_mode,
     input  wire        if0_cache_write_enabled,
     input  wire        if0_transparency_enabled,
     input  wire        if0_one_byte_cache_cycling,
@@ -89,10 +91,17 @@ module vram_if(
             // In cache write mode, we use the 32-bit data from the cache
             if (if0_transparency_enabled) begin
                 
-                byte_3_transparency_nibblesel = ram_wrdata[31:24] == 0 ? 2'b00 : 2'b11;
-                byte_2_transparency_nibblesel = ram_wrdata[23:16] == 0 ? 2'b00 : 2'b11;
-                byte_1_transparency_nibblesel = ram_wrdata[15:8] == 0 ? 2'b00 : 2'b11;
-                byte_0_transparency_nibblesel = ram_wrdata[7:0] == 0 ? 2'b00 : 2'b11;
+                if (if0_4bit_mode) begin
+                    byte_3_transparency_nibblesel = {ram_wrdata[31:28] != 0, ram_wrdata[27:24] != 0};
+                    byte_2_transparency_nibblesel = {ram_wrdata[23:20] != 0, ram_wrdata[19:16] != 0};
+                    byte_1_transparency_nibblesel = {ram_wrdata[15:12] != 0, ram_wrdata[11:8] != 0};
+                    byte_0_transparency_nibblesel = {ram_wrdata[7:4] != 0, ram_wrdata[3:0] != 0};
+                end else begin
+                    byte_3_transparency_nibblesel = ram_wrdata[31:24] == 0 ? 2'b00 : 2'b11;
+                    byte_2_transparency_nibblesel = ram_wrdata[23:16] == 0 ? 2'b00 : 2'b11;
+                    byte_1_transparency_nibblesel = ram_wrdata[15:8] == 0 ? 2'b00 : 2'b11;
+                    byte_0_transparency_nibblesel = ram_wrdata[7:0] == 0 ? 2'b00 : 2'b11;
+                end
                 
                 // In transparent cache write mode, we check each byte (or nibble) we are writing: if its 0, its considered transparent and not written to VRAM
                 ram_wrnibblesel = {byte_3_transparency_nibblesel,
@@ -104,8 +113,13 @@ module vram_if(
                 ram_wrnibblesel = ~if0_wrdata; 
             end
         end else begin
-            // In non-cache write mode, we check the byte we are writing: if its 0, its considered transparent and not written to VRAM
-            byte_transparancy_nibblesel = (if0_transparency_enabled && if0_wrdata_to_use == 0) ? 2'b00 : 2'b11;
+            // In non-cache write mode, we check the byte (or nibble) we are writing: if its 0, its considered transparent and not written to VRAM
+            if (if0_4bit_mode) begin
+                byte_transparancy_nibblesel = {!if0_addr_nibble && (!if0_transparency_enabled || if0_wrdata_to_use[7:4] != 0), 
+                                                if0_addr_nibble && (!if0_transparency_enabled || if0_wrdata_to_use[3:0] != 0)};
+            end else begin
+                byte_transparancy_nibblesel = (if0_transparency_enabled && if0_wrdata_to_use == 0) ? 2'b00 : 2'b11;
+            end
 
             // In non-cache write mode, we write the byte correspronding to the addr[1:0], unless we are in transparant mode and write a 0
             case (if0_addr[1:0])
