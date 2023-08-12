@@ -137,6 +137,8 @@ module top(
     reg        audio_mode_stereo_r,           audio_mode_stereo_next;
     reg        audio_mode_16bit_r,            audio_mode_16bit_next;
     reg        audio_fifo_reset_r,            audio_fifo_reset_next;
+    reg        audio_fifo_restart_r,          audio_fifo_restart_next;
+    reg        audio_fifo_loop_r,             audio_fifo_loop_next;
     wire       audio_fifo_full;
     reg  [3:0] audio_pcm_volume_r,            audio_pcm_volume_next;
     reg  [7:0] audio_fifo_wrdata_r,           audio_fifo_wrdata_next;
@@ -316,6 +318,8 @@ module top(
         audio_mode_stereo_next           = audio_mode_stereo_r;
         audio_mode_16bit_next            = audio_mode_16bit_r;
         audio_fifo_reset_next            = 0;
+        audio_fifo_restart_next          = 0;
+        audio_fifo_loop_next             = audio_fifo_loop_r;
         audio_pcm_volume_next            = audio_pcm_volume_r;
         audio_fifo_wrdata_next           = audio_fifo_wrdata_r;
         audio_fifo_write_next            = 0;
@@ -426,12 +430,166 @@ module top(
             l1_vscroll_next[11:8] = write_data[3:0];
         end
 
-        if (do_write && access_addr == 5'h06) begin
-            irq_line_next[8]                 = write_data[7];
-            irq_enable_audio_fifo_low_next   = write_data[3];
-            irq_enable_sprite_collision_next = write_data[2];
-            irq_enable_line_next             = write_data[1];
-            irq_enable_vsync_next            = write_data[0];
+        if (do_write) begin
+            case (access_addr)
+                5'h00: begin
+                    if (vram_addr_select_r) begin
+                        vram_addr_1_next[7:0] = write_data;
+                    end else begin
+                        vram_addr_0_next[7:0] = write_data;
+                    end
+
+                    fetch_ahead_port_next = vram_addr_select_r;
+                    fetch_ahead_next = 1;
+                end
+                5'h01: begin
+                    if (vram_addr_select_r) begin
+                        vram_addr_1_next[15:8] = write_data;
+                    end else begin
+                        vram_addr_0_next[15:8] = write_data;
+                    end
+
+                    fetch_ahead_port_next = vram_addr_select_r;
+                    fetch_ahead_next = 1;
+                end
+                5'h02: begin
+                    if (vram_addr_select_r) begin
+                        vram_addr_incr_1_next = write_data[7:4];
+                        vram_addr_decr_1_next = write_data[3];
+                        vram_addr_1_next[16]  = write_data[0];
+                    end else begin
+                        vram_addr_incr_0_next = write_data[7:4];
+                        vram_addr_decr_0_next = write_data[3];
+                        vram_addr_0_next[16]  = write_data[0];
+                    end
+
+                    fetch_ahead_port_next = vram_addr_select_r;
+                    fetch_ahead_next = 1;
+                end
+                5'h03: begin
+                end
+                5'h04: begin
+                end
+                5'h05: begin
+                    fpga_reconfigure_next = write_data[7];
+                    dc_select_next        = write_data[6:1];
+                    vram_addr_select_next = write_data[0];
+                end
+
+                5'h06: begin
+                    irq_line_next[8]                 = write_data[7];
+                    irq_enable_audio_fifo_low_next   = write_data[3];
+                    irq_enable_sprite_collision_next = write_data[2];
+                    irq_enable_line_next             = write_data[1];
+                    irq_enable_vsync_next            = write_data[0];
+                end
+                5'h07: begin
+                    // Clear status bits
+                    irq_status_sprite_collision_next = irq_status_sprite_collision_r & !write_data[2];
+                    irq_status_line_next             = irq_status_line_r             & !write_data[1];
+                    irq_status_vsync_next            = irq_status_vsync_r            & !write_data[0];
+                end
+                5'h08: irq_line_next[7:0] = write_data;
+
+                5'h09: begin
+                    if (dc_select_r == 0) begin
+                        sprites_enabled_next     = write_data[6];
+                        l1_enabled_next          = write_data[5];
+                        l0_enabled_next          = write_data[4];
+                        line_interlace_mode_next = write_data[3];
+                        chroma_disable_next      = write_data[2];
+                        video_output_mode_next   = write_data[1:0];
+                    end else begin
+                        dc_active_hstart_next[9:2] = write_data;
+                        dc_active_hstart_next[1:0] = 0;
+                    end
+                end
+                5'h0A: begin
+                    if (dc_select_r == 0) begin
+                        dc_hscale_next            = write_data;
+                    end else if (dc_select_r == 1) begin
+                        dc_active_hstop_next[9:2] = write_data;
+                        dc_active_hstop_next[1:0] = 0;
+                    end
+                end
+                5'h0B: begin
+                    if (dc_select_r == 0) begin
+                        dc_vscale_next             = write_data;
+                    end else if (dc_select_r == 1) begin
+                        dc_active_vstart_next[8:1] = write_data;
+                        dc_active_vstart_next[0]   = 0;
+                    end
+                end
+                5'h0C: begin
+                    if (dc_select_r == 0) begin
+                        dc_border_color_next      = write_data;
+                    end else if (dc_select_r == 1) begin
+                        dc_active_vstop_next[8:1] = write_data;
+                        dc_active_vstop_next[0]   = 0;
+                    end
+                end
+
+                5'h0D: begin
+                    l0_map_height_next  = write_data[7:6];
+                    l0_map_width_next   = write_data[5:4];
+                    l0_attr_mode_next   = write_data[3];
+                    l0_bitmap_mode_next = write_data[2];
+                    l0_color_depth_next = write_data[1:0];
+                end
+                5'h0E: l0_map_baseaddr_next = write_data;
+                5'h0F: begin
+                    l0_tile_baseaddr_next[7:2] = write_data[7:2];
+                    l0_tile_baseaddr_next[1:0] = 0;
+
+                    l0_tile_height_next = write_data[1];
+                    l0_tile_width_next  = write_data[0];
+                end
+                5'h10: l0_hscroll_next[7:0]  = write_data;
+                5'h11: l0_hscroll_next[11:8] = write_data[3:0];
+                5'h12: l0_vscroll_next[7:0]  = write_data;
+                5'h13: l0_vscroll_next[11:8] = write_data[3:0];
+
+                5'h14: begin
+                    l1_map_height_next  = write_data[7:6];
+                    l1_map_width_next   = write_data[5:4];
+                    l1_attr_mode_next   = write_data[3];
+                    l1_bitmap_mode_next = write_data[2];
+                    l1_color_depth_next = write_data[1:0];
+                end
+                5'h15: l1_map_baseaddr_next = write_data;
+                5'h16: begin
+                    l1_tile_baseaddr_next[7:2] = write_data[7:2];
+                    l1_tile_baseaddr_next[1:0] = 0;
+
+                    l1_tile_height_next = write_data[1];
+                    l1_tile_width_next  = write_data[0];
+                end
+                5'h17: l1_hscroll_next[7:0]  = write_data;
+                5'h18: l1_hscroll_next[11:8] = write_data[3:0];
+                5'h19: l1_vscroll_next[7:0]  = write_data;
+                5'h1A: l1_vscroll_next[11:8] = write_data[3:0];
+
+                5'h1B: begin
+                    audio_fifo_reset_next       = write_data[7:6] == 2'b10;
+                    audio_fifo_restart_next     = write_data[6];
+                    audio_fifo_loop_next        = write_data[7:6] == 2'b11;
+                    audio_mode_16bit_next       = write_data[5];
+                    audio_mode_stereo_next      = write_data[4];
+                    audio_pcm_volume_next       = write_data[3:0];
+                end
+                5'h1C: audio_pcm_sample_rate_next = write_data;
+                5'h1D: begin
+                    audio_fifo_wrdata_next = write_data;
+                    audio_fifo_write_next  = 1;
+                end
+
+                5'h1E: spi_txstart = 1;
+                5'h1F: begin
+                    spi_autotx_next = write_data[2];
+                    spi_slow_next   = write_data[1];
+                    spi_select_next = write_data[0];
+                end
+            endcase
         end
         if (do_write && access_addr == 5'h07) begin
             // Clear status bits
@@ -539,6 +697,8 @@ module top(
             audio_mode_stereo_r           <= 0;
             audio_mode_16bit_r            <= 0;
             audio_fifo_reset_r            <= 0;
+            audio_fifo_restart_r          <= 0;
+            audio_fifo_loop_r             <= 0;
             audio_pcm_volume_r            <= 0;
             audio_fifo_wrdata_r           <= 0;
             audio_fifo_write_r            <= 0;
@@ -597,6 +757,8 @@ module top(
             audio_mode_stereo_r           <= audio_mode_stereo_next;
             audio_mode_16bit_r            <= audio_mode_16bit_next;
             audio_fifo_reset_r            <= audio_fifo_reset_next;
+            audio_fifo_restart_r          <= audio_fifo_restart_next;
+            audio_fifo_loop_r             <= audio_fifo_loop_next;
             audio_pcm_volume_r            <= audio_pcm_volume_next;
             audio_fifo_wrdata_r           <= audio_fifo_wrdata_next;
             audio_fifo_write_r            <= audio_fifo_write_next;
@@ -1177,6 +1339,8 @@ module top(
 
         // Audio FIFO interface
         .fifo_reset(audio_fifo_reset_r),
+        .fifo_restart(audio_fifo_restart_r),
+        .fifo_loop(audio_fifo_loop_r),
         .fifo_wrdata(audio_fifo_wrdata_r),
         .fifo_write(audio_fifo_write_r),
         .fifo_full(audio_fifo_full),
